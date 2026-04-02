@@ -15,14 +15,18 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,        // Production frontend (Railway)
   'http://localhost:5173',          // Vite dev server
   'http://localhost:5174',          // Vite alt port
-].filter(Boolean);
+].filter(Boolean).map(u => u.replace(/\/+$/, '')); // strip trailing slashes
+
+console.log('Allowed CORS origins:', allowedOrigins);
 
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (server-to-server, health checks)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    callback(new Error(`CORS blocked: ${origin}`));
+    const cleaned = origin.replace(/\/+$/, '');
+    if (allowedOrigins.includes(cleaned)) return callback(null, true);
+    console.warn(`CORS rejected origin: ${origin}`);
+    callback(null, false);
   },
   methods: ['GET', 'POST', 'PATCH'],
   credentials: true, // Allow Authorization header
