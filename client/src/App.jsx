@@ -8,8 +8,29 @@ import JobDetail from './components/JobDetail';
 import LoginPage from './components/LoginPage';
 
 const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
+const SPLASH_DURATION = 10000; // 10 seconds
+
+function SplashScreen({ onComplete }) {
+  const [fadeOut, setFadeOut] = useState(false);
+
+  useEffect(() => {
+    const fadeTimer = setTimeout(() => setFadeOut(true), SPLASH_DURATION - 600);
+    const doneTimer = setTimeout(onComplete, SPLASH_DURATION);
+    return () => { clearTimeout(fadeTimer); clearTimeout(doneTimer); };
+  }, [onComplete]);
+
+  return (
+    <div className={`splash-screen ${fadeOut ? 'fade-out' : ''}`}>
+      <p className="splash-text">This is to close business and move forward together as quickly as possible</p>
+      <p className="splash-hashtag">#BringHomeTheLion</p>
+
+    </div>
+  );
+}
 
 function Dashboard() {
+  const [showSplash, setShowSplash] = useState(true);
+
   const { instance, accounts } = useMsal();
   const [jobs, setJobs] = useState([]);
   const [stats, setStats] = useState(null);
@@ -82,6 +103,10 @@ function Dashboard() {
   const handleLogout = () => {
     instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin });
   };
+
+  if (showSplash) {
+    return <SplashScreen onComplete={() => setShowSplash(false)} />;
+  }
 
   return (
     <div className="app">
