@@ -1,0 +1,303 @@
+const express = require('express');
+const ExcelJS = require('exceljs');
+const { getOpenJobs, getAllJobs, getJobById, getSubmissions } = require('../lib/bullhorn');
+const { getAllOverrides, getOverrides, upsertOverrides, getNotesForJob, addNote } = require('../lib/db');
+
+const router = express.Router();
+
+// GET /api/jobs/export — Excel export (must be above /:id to avoid conflict)
+router.get('/export', async (req, res, next) => {
+  try {
+    const result = await getOpenJobs();
+    const overrides = getAllOverrides();
+    const jobs = (result?.data || []).map(j => mergeOverrides(formatJob(j), overrides));
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Req Board');
+
+    // Define columns
+    sheet.columns = [
+      { header: 'Pri', key: 'priority', width: 5 },
+      { header: 'Req#', key: 'id', width: 7 },
+      { header: 'Date', key: 'dateAdded', width: 12 },
+      { header: 'AM', key: 'ownerInitials', width: 5 },
+      { header: 'TR', key: 'recruiter', width: 8 },
+      { header: 'Job Title', key: 'title', width: 32 },
+      { header: 'Client', key: 'client', width: 22 },
+      { header: 'Status', key: 'status', width: 20 },
+      { header: 'BR/Salary', key: 'brSalary', width: 14 },
+      { header: 'CE $', key: 'ceSpread', width: 10 },
+      { header: 'Perm $', key: 'permFee', width: 10 },
+      { header: 'Manager', key: 'clientContact', width: 18 },
+      { header: 'Type', key: 'employmentType', width: 14 },
+      { header: 'Remote', key: 'remote', width: 8 },
+      { header: '# Open', key: 'numOpenings', width: 7 },
+      { header: '# Filled', key: 'filled', width: 8 },
+      { header: 'Follow Up', key: 'followUp', width: 20 },
+      { header: 'Deadline', key: 'deadline', width: 18 },
+      { header: 'Location', key: 'location', width: 16 },
+      { header: 'Start', key: 'startDate', width: 12 },
+      { header: 'End', key: 'estimatedEndDate', width: 12 },
+    ];
+
+    // Style header row
+    const headerRow = sheet.getRow(1);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A2744' } };
+    headerRow.alignment = { vertical: 'middle' };
+    headerRow.height = 22;
+
+    // Add data rows
+    for (const job of jobs) {
+      sheet.addRow({
+        priority: job.priority || '',
+        id: job.id,
+        dateAdded: job.dateAdded ? new Date(job.dateAdded).toLocaleDateString('en-US', { timeZone: 'America/Chicago' }) : '',
+        ownerInitials: job.ownerInitials || '',
+        recruiter: job.recruiter || '',
+        title: job.title || '',
+        client: job.client || '',
+        status: job.status || '',
+        brSalary: job.brSalary || '',
+        ceSpread: job.ceSpread || '',
+        permFee: job.permFee || '',
+        clientContact: job.clientContact || '',
+        employmentType: job.employmentType || '',
+        remote: job.remote || '',
+        numOpenings: job.numOpenings || 0,
+        filled: job.filled || '',
+        followUp: job.followUp || '',
+        deadline: job.deadline || '',
+        location: [job.city, job.state].filter(Boolean).join(', '),
+        startDate: job.startDate ? new Date(job.startDate).toLocaleDateString('en-US', { timeZone: 'America/Chicago' }) : '',
+        estimatedEndDate: job.estimatedEndDate ? new Date(job.estimatedEndDate).toLocaleDateString('en-US', { timeZone: 'America/Chicago' }) : '',
+      });
+    }
+
+    // Format currency columns
+    sheet.getColumn('ceSpread').numFmt = '$#,##0';
+    sheet.getColumn('permFee').numFmt = '$#,##0';
+
+    // Auto-filter
+    sheet.autoFilter = { from: 'A1', to: `U${jobs.length + 1}` };
+
+    // Freeze header row
+    sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=APT_Req_Board_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/jobs — All open job orders (with overrides merged)
+router.get('/', async (req, res, next) => {
+  try {
+    const result = await getOpenJobs();
+    const overrides = getAllOverrides();
+    const jobs = (result?.data || []).map(j => mergeOverrides(formatJob(j), overrides));
+    res.json({ total: jobs.length, data: jobs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/jobs/all — All jobs including closed (with overrides)
+router.get('/all', async (req, res, next) => {
+  try {
+    const result = await getAllJobs();
+    const overrides = getAllOverrides();
+    const jobs = (result?.data || []).map(j => mergeOverrides(formatJob(j), overrides));
+    res.json({ total: jobs.length, data: jobs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/jobs/:id — Single job detail + submissions + overrides
+router.get('/:id', async (req, res, next) => {
+  try {
+    const [jobResult, subsResult] = await Promise.all([
+      getJobById(req.params.id),
+      getSubmissions(req.params.id),
+    ]);
+
+    const job = jobResult?.data?.[0];
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    const overrides = getOverrides(parseInt(req.params.id, 10));
+    const formatted = formatJob(job);
+    if (overrides) {
+      formatted.recruiter = overrides.recruiter || '';
+      formatted.followUp = overrides.follow_up || '';
+      formatted.deadline = overrides.deadline || '';
+    }
+
+    const notes = getNotesForJob(parseInt(req.params.id, 10));
+
+    res.json({
+      job: formatted,
+      submissions: {
+        total: subsResult?.count || 0,
+        data: (subsResult?.data || []).map(formatSubmission),
+      },
+      notes,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/jobs/:id/overrides — Update TR, Follow Up, Deadline
+router.patch('/:id/overrides', async (req, res, next) => {
+  try {
+    const jobId = parseInt(req.params.id, 10);
+    if (isNaN(jobId)) {
+      return res.status(400).json({ error: 'Invalid job ID' });
+    }
+
+    const { recruiter, follow_up, deadline } = req.body;
+    const updatedBy = req.user?.email || req.user?.name || 'unknown';
+
+    const result = upsertOverrides(jobId, {
+      recruiter,
+      follow_up,
+      deadline,
+      updated_by: updatedBy,
+    });
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/jobs/:id/notes — Add a note (stored locally)
+router.post('/:id/notes', async (req, res, next) => {
+  try {
+    const jobId = parseInt(req.params.id, 10);
+    if (isNaN(jobId)) {
+      return res.status(400).json({ error: 'Invalid job ID' });
+    }
+
+    const { comment } = req.body;
+    if (!comment || !comment.trim()) {
+      return res.status(400).json({ error: 'Comment is required' });
+    }
+
+    const createdBy = req.user?.name || req.user?.email || 'Unknown';
+    const note = addNote(jobId, comment.trim(), createdBy);
+    res.json({ success: true, data: note });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- Helpers ---
+
+function mergeOverrides(job, overridesMap) {
+  const ov = overridesMap[job.id];
+  if (ov) {
+    job.recruiter = ov.recruiter || '';
+    job.followUp = ov.follow_up || '';
+    job.deadline = ov.deadline || '';
+  } else {
+    job.recruiter = job.recruiter || '';
+    job.followUp = job.followUp || '';
+    job.deadline = job.deadline || '';
+  }
+  return job;
+}
+
+function formatJob(job) {
+  const payRate = job.payRate || null;
+  const billRate = job.clientBillRate || null;
+  const salary = job.salary || null;
+  const salaryHigh = job.customFloat1 || null;
+  const feePercent = job.feeArrangement || null;
+  const empType = job.employmentType || null;
+
+  let ceSpread = null;
+  if (billRate && payRate && billRate > payRate) {
+    ceSpread = Math.round((billRate - payRate) * 40 * 100) / 100;
+  }
+
+  let permFee = null;
+  if (salary && feePercent) {
+    permFee = Math.round(salary * feePercent * 100) / 100;
+  }
+
+  let brSalary = null;
+  if (billRate && payRate) {
+    brSalary = `$${payRate}/$${billRate}`;
+  } else if (salary) {
+    brSalary = `$${Number(salary).toLocaleString('en-US')}`;
+  } else if (payRate) {
+    brSalary = `$${payRate}/hr`;
+  }
+
+  return {
+    id: job.id,
+    title: job.title,
+    status: Array.isArray(job.status) ? job.status[0] : job.status,
+    owner: job.owner
+      ? `${job.owner.firstName || ''} ${job.owner.lastName || ''}`.trim()
+      : null,
+    ownerInitials: job.owner
+      ? `${(job.owner.firstName || '')[0] || ''}${(job.owner.lastName || '')[0] || ''}`.toUpperCase()
+      : null,
+    ownerId: job.owner?.id || null,
+    client: job.clientCorporation?.name || null,
+    clientId: job.clientCorporation?.id || null,
+    clientContact: job.clientContact
+      ? `${job.clientContact.firstName || ''} ${job.clientContact.lastName || ''}`.trim()
+      : null,
+    employmentType: empType,
+    numOpenings: job.numOpenings || 0,
+    payRate,
+    billRate,
+    salary,
+    salaryHigh,
+    feePercent,
+    dealValue: job.customFloat2 || null,
+    brSalary,
+    ceSpread,
+    permFee,
+    remote: job.customText1 || null,
+    filled: job.customText2 || null,
+    washed: job.customText3 || null,
+    lost: job.customText4 || null,
+    staffingOrProject: job.customText5 === '1' ? 'Staffing' : job.customText5 === '0' ? 'Project' : null,
+    aprioraStatus: job.customText40 || null,
+    dateAdded: job.dateAdded ? new Date(job.dateAdded).toISOString() : null,
+    startDate: job.startDate ? new Date(job.startDate).toISOString() : null,
+    estimatedEndDate: job.estimatedEndDate ? new Date(job.estimatedEndDate).toISOString() : null,
+    city: job.address?.city || null,
+    state: job.address?.state || null,
+    priority: job.type === 1 ? 'A' : job.type === 2 ? 'B' : job.type === 3 ? 'C' : null,
+    // Editable fields (populated from overrides)
+    recruiter: '',
+    followUp: '',
+    deadline: '',
+  };
+}
+
+function formatSubmission(sub) {
+  return {
+    id: sub.id,
+    candidate: sub.candidate
+      ? `${sub.candidate.firstName || ''} ${sub.candidate.lastName || ''}`.trim()
+      : null,
+    candidateId: sub.candidate?.id || null,
+    status: sub.status,
+    dateAdded: sub.dateAdded ? new Date(sub.dateAdded).toISOString() : null,
+    source: sub.source || null,
+  };
+}
+
+module.exports = router;

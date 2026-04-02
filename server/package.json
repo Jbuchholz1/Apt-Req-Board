@@ -1,0 +1,18 @@
+{
+  "name": "apt-req-board-api",
+  "version": "1.0.0",
+  "description": "API server for APT Digital Req Board — proxies Bullhorn MCP calls",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.8.0",
+    "cors": "^2.8.5",
+    "exceljs": "^4.4.0",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.3",
+    "jwks-rsa": "^4.0.1"
+  }
+}
