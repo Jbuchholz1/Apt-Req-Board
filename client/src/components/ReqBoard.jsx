@@ -71,6 +71,7 @@ const COLUMNS = [
   { key: 'title', label: 'Job Title', sortable: true },
   { key: 'client', label: 'Client', sortable: true, width: '150px' },
   { key: 'status', label: 'Status', sortable: true, width: '155px' },
+  { key: 'notes', label: 'Notes', sortable: true, width: '140px', editable: true },
   { key: 'deadline', label: 'Deadline', sortable: true, width: '110px', editable: true },
   { key: 'followUp', label: 'Follow Up', sortable: true, width: '120px', editable: true },
   { key: 'brSalary', label: 'BR/Salary', sortable: true, width: '110px' },
@@ -88,6 +89,7 @@ const COLUMNS = [
 // Maps column keys to the API field names for overrides
 const OVERRIDE_FIELD_MAP = {
   recruiter: 'recruiter',
+  notes: 'notes',
   followUp: 'follow_up',
   deadline: 'deadline',
 };
@@ -150,7 +152,8 @@ export default function ReqBoard({ jobs, loading, onSelectJob, selectedJobId, on
   const renderCell = (job, col) => {
     // Editable cells
     if (col.editable) {
-      const placeholder = col.key === 'recruiter' ? 'TR' : col.key === 'deadline' ? 'Deadline' : 'Follow Up';
+      const placeholders = { recruiter: 'TR', notes: 'Notes', deadline: 'Deadline', followUp: 'Follow Up' };
+      const placeholder = placeholders[col.key] || '';
       // Compute deadline urgency coloring
       const cellStyle = col.key === 'deadline' ? DEADLINE_STYLES[getDeadlineUrgency(job.deadline)] : undefined;
       return (
@@ -179,7 +182,20 @@ export default function ReqBoard({ jobs, loading, onSelectJob, selectedJobId, on
           </td>
         );
       case 'id':
-        return <td key={col.key} className="cell-num cell-muted">{job.id}</td>;
+        return (
+          <td key={col.key} className="cell-num">
+            <a
+              href={`https://cls42.bullhornstaffing.com/BullhornSTAFFING/OpenWindow.cfm?Entity=JobOrder&id=${job.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bh-link"
+              onClick={e => e.stopPropagation()}
+              title="Open in Bullhorn"
+            >
+              {job.id}
+            </a>
+          </td>
+        );
       case 'dateAdded':
         return <td key={col.key} className="cell-date">{formatDate(job.dateAdded)}</td>;
       case 'ownerInitials':

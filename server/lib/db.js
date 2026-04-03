@@ -19,10 +19,18 @@ db.exec(`
     recruiter TEXT DEFAULT '',
     follow_up TEXT DEFAULT '',
     deadline TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
     updated_at TEXT DEFAULT (datetime('now')),
     updated_by TEXT DEFAULT ''
   )
 `);
+
+// Migration: add notes column if missing (for existing databases)
+try {
+  db.exec(`ALTER TABLE job_overrides ADD COLUMN notes TEXT DEFAULT ''`);
+} catch (e) {
+  // Column already exists — ignore
+}
 
 /**
  * Get all overrides as a map keyed by job_id.
@@ -46,7 +54,7 @@ function getOverrides(jobId) {
 /**
  * Upsert overrides for a job. Only updates fields that are provided.
  */
-function upsertOverrides(jobId, { recruiter, follow_up, deadline, updated_by }) {
+function upsertOverrides(jobId, { recruiter, follow_up, deadline, notes, updated_by }) {
   const existing = getOverrides(jobId);
 
   if (existing) {
@@ -55,6 +63,7 @@ function upsertOverrides(jobId, { recruiter, follow_up, deadline, updated_by }) 
     if (recruiter !== undefined) { updates.push('recruiter = ?'); params.push(recruiter); }
     if (follow_up !== undefined) { updates.push('follow_up = ?'); params.push(follow_up); }
     if (deadline !== undefined) { updates.push('deadline = ?'); params.push(deadline); }
+    if (notes !== undefined) { updates.push('notes = ?'); params.push(notes); }
     updates.push("updated_at = datetime('now')");
     if (updated_by) { updates.push('updated_by = ?'); params.push(updated_by); }
     params.push(jobId);
@@ -62,13 +71,14 @@ function upsertOverrides(jobId, { recruiter, follow_up, deadline, updated_by }) 
     db.prepare(`UPDATE job_overrides SET ${updates.join(', ')} WHERE job_id = ?`).run(...params);
   } else {
     db.prepare(`
-      INSERT INTO job_overrides (job_id, recruiter, follow_up, deadline, updated_by)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO job_overrides (job_id, recruiter, follow_up, deadline, notes, updated_by)
+      VALUES (?, ?, ?, ?, ?, ?)
     `).run(
       jobId,
       recruiter || '',
       follow_up || '',
       deadline || '',
+      notes || '',
       updated_by || ''
     );
   }

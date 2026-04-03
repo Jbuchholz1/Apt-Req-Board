@@ -155,6 +155,7 @@ router.get('/:id', async (req, res, next) => {
       formatted.recruiter = overrides.recruiter || '';
       formatted.followUp = overrides.follow_up || '';
       formatted.deadline = overrides.deadline || '';
+      formatted.notes = overrides.notes || '';
     }
 
     const notes = getNotesForJob(parseInt(req.params.id, 10));
@@ -172,7 +173,7 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-// PATCH /api/jobs/:id/overrides — Update TR, Follow Up, Deadline
+// PATCH /api/jobs/:id/overrides — Update TR, Notes, Follow Up, Deadline
 router.patch('/:id/overrides', async (req, res, next) => {
   try {
     const jobId = parseInt(req.params.id, 10);
@@ -180,11 +181,12 @@ router.patch('/:id/overrides', async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid job ID' });
     }
 
-    const { recruiter, follow_up, deadline } = req.body;
+    const { recruiter, notes, follow_up, deadline } = req.body;
     const updatedBy = req.user?.email || req.user?.name || 'unknown';
 
     const result = upsertOverrides(jobId, {
       recruiter,
+      notes,
       follow_up,
       deadline,
       updated_by: updatedBy,
@@ -225,10 +227,12 @@ function mergeOverrides(job, overridesMap) {
     job.recruiter = ov.recruiter || '';
     job.followUp = ov.follow_up || '';
     job.deadline = ov.deadline || '';
+    job.notes = ov.notes || '';
   } else {
     job.recruiter = job.recruiter || '';
     job.followUp = job.followUp || '';
     job.deadline = job.deadline || '';
+    job.notes = job.notes || '';
   }
   return job;
 }
@@ -303,6 +307,7 @@ function formatJob(job) {
     fallingOff: false, // set by route handler for recently-closed jobs
     // Editable fields (populated from overrides)
     recruiter: '',
+    notes: '',
     followUp: '',
     deadline: '',
   };
