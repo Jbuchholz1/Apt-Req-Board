@@ -79,7 +79,7 @@ const JOB_FIELDS = [
   'clientBillRate', 'feeArrangement',
   'customFloat1', 'customFloat2',
   'customText1', 'customText2', 'customText3', 'customText4', 'customText5', 'customText40',
-  'dateAdded', 'startDate', 'estimatedEndDate', 'address', 'assignedUsers', 'type',
+  'dateAdded', 'startDate', 'estimatedEndDate', 'dateLastModified', 'address', 'assignedUsers', 'type',
 ].join(',');
 
 async function getOpenJobs() {
@@ -89,6 +89,18 @@ async function getOpenJobs() {
     fields: JOB_FIELDS,
     orderBy: '-dateAdded',
     count: 200,
+  });
+}
+
+// Jobs with status Archive/Placed/Lost that were modified in the last 48 hours
+async function getRecentlyClosedJobs() {
+  const cutoff = Date.now() - (48 * 60 * 60 * 1000); // 48 hours ago
+  return callTool('query_entity', {
+    entityType: 'JobOrder',
+    where: `isOpen = false AND isDeleted = false AND dateLastModified > ${cutoff} AND (status = 'Archive' OR status = 'Placed' OR status = 'Lost')`,
+    fields: JOB_FIELDS,
+    orderBy: '-dateLastModified',
+    count: 100,
   });
 }
 
@@ -141,6 +153,7 @@ async function searchJobs(query) {
 // Nothing writes back to Bullhorn.
 module.exports = {
   getOpenJobs,
+  getRecentlyClosedJobs,
   getAllJobs,
   getJobById,
   getSubmissions,

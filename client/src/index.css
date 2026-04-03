@@ -278,6 +278,19 @@ body { margin: 0; }
   border-left: 3px solid var(--gold);
 }
 
+.req-row.falling-off {
+  opacity: 0.55;
+  background: #fef2f2;
+}
+.req-row.falling-off:hover {
+  opacity: 0.75;
+  background: #fee2e2;
+}
+.req-row.falling-off .cell-title {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
 .cell-title {
   font-weight: 600;
   color: var(--navy);

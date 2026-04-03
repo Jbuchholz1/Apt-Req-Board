@@ -26,6 +26,42 @@ function formatCurrency(val) {
   return `$${Number(val).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
+/**
+ * Parse a deadline string and return urgency level.
+ * Supports formats like "4/5", "4/5 Closes", "4/5 @ 2pm", "Apr 5, 26"
+ * Returns: 'red' (at/past deadline), 'yellow' (within 2 days), or null
+ */
+function getDeadlineUrgency(deadlineStr) {
+  if (!deadlineStr) return null;
+  // Try to extract a date from the string
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  // Try parsing "M/D" or "M/D/YYYY" at the start of the string
+  const match = deadlineStr.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/);
+  if (!match) return null;
+
+  const month = parseInt(match[1], 10) - 1;
+  const day = parseInt(match[2], 10);
+  let year = match[3] ? parseInt(match[3], 10) : now.getFullYear();
+  if (year < 100) year += 2000;
+
+  const deadline = new Date(year, month, day);
+  if (isNaN(deadline.getTime())) return null;
+
+  const diffMs = deadline.getTime() - today.getTime();
+  const diffDays = diffMs / (1000 * 60 * 60 * 24);
+
+  if (diffDays <= 0) return 'red';      // At or past deadline
+  if (diffDays <= 2) return 'yellow';    // Within 2 days
+  return null;
+}
+
+const DEADLINE_STYLES = {
+  red: { backgroundColor: '#fecaca', color: '#991b1b' },
+  yellow: { backgroundColor: '#fef08a', color: '#854d0e' },
+};
+
 const COLUMNS = [
   { key: 'priority', label: 'Pri', sortable: true, width: '42px' },
   { key: 'id', label: 'Req#', sortable: true, width: '55px' },
@@ -115,6 +151,8 @@ export default function ReqBoard({ jobs, loading, onSelectJob, selectedJobId, on
     // Editable cells
     if (col.editable) {
       const placeholder = col.key === 'recruiter' ? 'TR' : col.key === 'deadline' ? 'Deadline' : 'Follow Up';
+      // Compute deadline urgency coloring
+      const cellStyle = col.key === 'deadline' ? DEADLINE_STYLES[getDeadlineUrgency(job.deadline)] : undefined;
       return (
         <EditableCell
           key={col.key}
@@ -122,6 +160,7 @@ export default function ReqBoard({ jobs, loading, onSelectJob, selectedJobId, on
           placeholder={placeholder}
           onSave={(val) => handleOverrideSave(job.id, col.key, val)}
           className="cell-editable"
+          cellStyle={cellStyle}
         />
       );
     }
@@ -192,7 +231,7 @@ export default function ReqBoard({ jobs, loading, onSelectJob, selectedJobId, on
           {sorted.map(job => (
             <tr
               key={job.id}
-              className={`req-row ${selectedJobId === job.id ? 'selected' : ''}`}
+              className={`req-row ${selectedJobId === job.id ? 'selected' : ''} ${job.fallingOff ? 'falling-off' : ''}`}
               onClick={() => onSelectJob(job.id)}
             >
               {COLUMNS.map(col => renderCell(job, col))}

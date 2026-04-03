@@ -2,8 +2,9 @@ import { useState, useRef, useEffect } from 'react';
 
 /**
  * Inline-editable table cell. Click to edit, blur/Enter to save.
+ * Accepts optional cellStyle for background color overrides (e.g. deadline urgency).
  */
-export default function EditableCell({ value, onSave, placeholder, className }) {
+export default function EditableCell({ value, onSave, placeholder, className, cellStyle }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || '');
   const inputRef = useRef(null);
@@ -37,7 +38,7 @@ export default function EditableCell({ value, onSave, placeholder, className }) 
 
   if (editing) {
     return (
-      <td className={`editable-cell editing ${className || ''}`} onClick={e => e.stopPropagation()}>
+      <td className={`editable-cell editing ${className || ''}`} style={cellStyle} onClick={e => e.stopPropagation()}>
         <input
           ref={inputRef}
           type="text"
@@ -55,6 +56,7 @@ export default function EditableCell({ value, onSave, placeholder, className }) 
   return (
     <td
       className={`editable-cell ${className || ''}`}
+      style={cellStyle}
       onClick={(e) => { e.stopPropagation(); setEditing(true); }}
       title="Click to edit"
     >

@@ -1,6 +1,6 @@
 const express = require('express');
 const ExcelJS = require('exceljs');
-const { getOpenJobs, getAllJobs, getJobById, getSubmissions } = require('../lib/bullhorn');
+const { getOpenJobs, getRecentlyClosedJobs, getAllJobs, getJobById, getSubmissions } = require('../lib/bullhorn');
 const { getAllOverrides, getOverrides, upsertOverrides, getNotesForJob, addNote } = require('../lib/db');
 
 const router = express.Router();
@@ -93,13 +93,32 @@ router.get('/export', async (req, res, next) => {
   }
 });
 
-// GET /api/jobs — All open job orders (with overrides merged)
+// GET /api/jobs — All open jobs + recently closed (Archive/Placed/Lost within 48hrs)
 router.get('/', async (req, res, next) => {
   try {
-    const result = await getOpenJobs();
+    const [openResult, closedResult] = await Promise.all([
+      getOpenJobs(),
+      getRecentlyClosedJobs(),
+    ]);
     const overrides = getAllOverrides();
-    const jobs = (result?.data || []).map(j => mergeOverrides(formatJob(j), overrides));
-    res.json({ total: jobs.length, data: jobs });
+
+    // Merge open + recently closed, deduplicate by ID
+    const seen = new Set();
+    const allJobs = [];
+    for (const j of [...(openResult?.data || []), ...(closedResult?.data || [])]) {
+      if (!seen.has(j.id)) {
+        seen.add(j.id);
+        const formatted = formatJob(j);
+        // Mark recently-closed jobs so the frontend can style them
+        const status = Array.isArray(j.status) ? j.status[0] : j.status;
+        if (['Archive', 'Placed', 'Lost'].includes(status) && !j.isOpen) {
+          formatted.fallingOff = true;
+        }
+        allJobs.push(mergeOverrides(formatted, overrides));
+      }
+    }
+
+    res.json({ total: allJobs.length, data: allJobs });
   } catch (err) {
     next(err);
   }
@@ -280,6 +299,8 @@ function formatJob(job) {
     city: job.address?.city || null,
     state: job.address?.state || null,
     priority: job.type === 1 ? 'A' : job.type === 2 ? 'B' : job.type === 3 ? 'C' : null,
+    dateLastModified: job.dateLastModified ? new Date(job.dateLastModified).toISOString() : null,
+    fallingOff: false, // set by route handler for recently-closed jobs
     // Editable fields (populated from overrides)
     recruiter: '',
     followUp: '',
